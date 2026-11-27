@@ -1,38 +1,21 @@
+
 package com.example.tiktoklivebot
 
 import android.app.Activity
+import android.content.ActivityNotFoundException
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.content.Intent
+import android.net.Uri
 import android.os.Bundle
-import android.os.Handler
-import android.os.Looper
-import android.text.InputType
 import android.view.ViewGroup
 import android.widget.*
 
 class MainActivity : Activity() {
 
     private lateinit var liveLink: EditText
-    private lateinit var interval: EditText
     private lateinit var status: TextView
-    private lateinit var startButton: Button
-
-    private val handler = Handler(Looper.getMainLooper())
-    private var isRepeating = false
-
-    private val copyTask = object : Runnable {
-        override fun run() {
-            if (!isRepeating) return
-
-            val url = liveLink.text.toString().trim()
-            copyToClipboard(url)
-
-            val seconds = interval.text.toString().toLongOrNull() ?: 60L
-            status.text = "Repetição ativa: link copiado. Próxima cópia em ${seconds}s."
-            handler.postDelayed(this, seconds * 1000L)
-        }
-    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -44,12 +27,12 @@ class MainActivity : Activity() {
         }
 
         layout.addView(TextView(this).apply {
-            text = "TikTok Live — copiador de link"
-            textSize = 24f
+            text = "TikTok Live Bot"
+            textSize = 26f
         })
 
         layout.addView(TextView(this).apply {
-            text = "Cole o link da mesma live:"
+            text = "Cole o link da LIVE:"
             textSize = 16f
         })
 
@@ -57,100 +40,106 @@ class MainActivity : Activity() {
             hint = "https://www.tiktok.com/..."
             setSingleLine(true)
         }
+
         layout.addView(liveLink)
 
-        layout.addView(TextView(this).apply {
-            text = "Intervalo entre cópias (segundos; mínimo 30):"
-            textSize = 16f
-        })
-
-        interval = EditText(this).apply {
-            hint = "60"
-            setText("60")
-            inputType = InputType.TYPE_CLASS_NUMBER
-        }
-        layout.addView(interval)
-
         layout.addView(Button(this).apply {
-            text = "Copiar uma vez"
+            text = "Abrir LIVE no TikTok"
             setOnClickListener {
                 val url = validatedUrl() ?: return@setOnClickListener
-                copyToClipboard(url)
-                status.text = "Link copiado."
+                openTikTok(url)
             }
         })
 
-        startButton = Button(this).apply {
-            text = "Iniciar repetição"
-            setOnClickListener { startRepeating() }
-        }
-        layout.addView(startButton)
+        layout.addView(Button(this).apply {
+            text = "Compartilhar LIVE"
+            setOnClickListener {
+                val url = validatedUrl() ?: return@setOnClickListener
+                shareLive(url)
+            }
+        })
 
         layout.addView(Button(this).apply {
-            text = "Parar repetição"
-            setOnClickListener { stopRepeating() }
+            text = "Copiar link"
+            setOnClickListener {
+                val url = validatedUrl() ?: return@setOnClickListener
+                copyLink(url)
+            }
         })
 
         status = TextView(this).apply {
-            text = "Status: parado"
+            text = "Status: pronto"
             textSize = 16f
             setPadding(0, 25, 0, 0)
         }
+
         layout.addView(status)
 
-        layout.addView(TextView(this).apply {
-            text = "A repetição funciona enquanto esta tela estiver aberta. O Android pode limitar o acesso à área de transferência em segundo plano; por isso, este app não promete copiar com a tela fechada. Não envia mensagens nem curtidas."
-            textSize = 13f
-            setPadding(0, 24, 0, 0)
+        setContentView(ScrollView(this).apply {
+            addView(layout)
         })
-
-        setContentView(ScrollView(this).apply { addView(layout) })
     }
 
     private fun validatedUrl(): String? {
         val url = liveLink.text.toString().trim()
-        if (!url.startsWith("https://www.tiktok.com/") &&
-            !url.startsWith("https://vt.tiktok.com/")) {
-            liveLink.error = "Cole um link válido do TikTok"
+        val uri = Uri.parse(url)
+
+        val validHost = uri.host?.let {
+            it == "tiktok.com" ||
+            it.endsWith(".tiktok.com")
+        } ?: false
+
+        if (uri.scheme != "https" || !validHost) {
+            liveLink.error = "Cole um link HTTPS válido do TikTok"
             return null
         }
+
         return url
     }
 
-    private fun copyToClipboard(url: String) {
-        val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-        clipboard.setPrimaryClip(ClipData.newPlainText("TikTok Live", url))
+    private fun openTikTok(url: String) {
+        val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
+        intent.setPackage("com.zhiliaoapp.musically")
+
+        try {
+            startActivity(intent)
+            status.text = "Abrindo LIVE no TikTok..."
+        } catch (e: ActivityNotFoundException) {
+            try {
+                startActivity(
+                    Intent(Intent.ACTION_VIEW, Uri.parse(url))
+                )
+                status.text = "Abrindo link no navegador..."
+            } catch (ex: Exception) {
+                status.text = "Não foi possível abrir o link."
+            }
+        }
     }
 
-    private fun startRepeating() {
-        val url = validatedUrl() ?: return
-        val seconds = interval.text.toString().toLongOrNull()
-
-        if (seconds == null || seconds < 30) {
-            interval.error = "Use pelo menos 30 segundos"
-            return
+    private fun shareLive(url: String) {
+        val intent = Intent(Intent.ACTION_SEND).apply {
+            type = "text/plain"
+            putExtra(Intent.EXTRA_TEXT, url)
         }
 
-        if (isRepeating) return
+        startActivity(
+            Intent.createChooser(intent, "Compartilhar LIVE")
+        )
 
-        isRepeating = true
-        startButton.isEnabled = false
-        status.text = "Repetição iniciada."
-        handler.removeCallbacks(copyTask)
-        copyToClipboard(url)
-        status.text = "Repetição ativa: link copiado. Próxima cópia em ${seconds}s."
-        handler.postDelayed(copyTask, seconds * 1000L)
+        status.text = "Menu de compartilhamento aberto."
     }
 
-    private fun stopRepeating() {
-        isRepeating = false
-        handler.removeCallbacks(copyTask)
-        if (::startButton.isInitialized) startButton.isEnabled = true
-        status.text = "Status: parado"
-    }
+    private fun copyLink(url: String) {
+        val clipboard =
+            getSystemService(Context.CLIPBOARD_SERVICE)
+                as ClipboardManager
 
-    override fun onDestroy() {
-        stopRepeating()
-        super.onDestroy()
+        clipboard.setPrimaryClip(
+            ClipData.newPlainText("TikTok Live", url)
+        )
+
+        status.text = "Link copiado."
     }
 }
+
+
